@@ -377,7 +377,7 @@ Roblox oyunları, klan stratejileri ve oyun tavsiyeleri konusunda yardımcı ol.
 
       // Timeout ile fetch yap (30 saniye)
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000);
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
 
       const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`, {
         method: "POST",
