@@ -375,37 +375,76 @@ Roblox oyunları, klan stratejileri ve oyun tavsiyeleri konusunda yardımcı ol.
         parts: [{ text: "Anladım, TA oyunu hakkında bilgili bir asistan olarak yardımcı olacağım." }]
       });
 
-      // Timeout ile fetch yap (30 saniye)
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 60000);
+      // Model fallback zinciri: en hızlıdan en yavaşa
+      const GEMINI_MODELS = [
+        "gemini-2.5-flash-lite",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash-lite",
+      ];
 
-      const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contents }),
-        signal: controller.signal
-      });
+      async function callGeminiWithFallback(contents: any[]): Promise<string> {
+        let lastError = "";
+        for (const model of GEMINI_MODELS) {
+          for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), 25000);
 
-      clearTimeout(timeoutId);
+              const geminiRes = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`,
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ contents }),
+                  signal: controller.signal,
+                }
+              );
 
-      if (!geminiRes.ok) {
-        const err = await geminiRes.json().catch(() => ({}));
-        const errorMsg = err.error?.message ?? `Gemini HTTP ${geminiRes.status}`;
-        console.error(`[AI] Error: ${errorMsg}`);
-        return res.status(502).json({ error: "AI servisi şu an meşgul. Lütfen tekrar deneyin." });
+              clearTimeout(timeoutId);
+
+              if (geminiRes.ok) {
+                const data = await geminiRes.json() as any;
+                const reply = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (reply) {
+                  console.log(`[AI] Success with model: ${model}`);
+                  return reply;
+                }
+              }
+
+              const errBody = await geminiRes.json().catch(() => ({})) as any;
+              lastError = errBody?.error?.message ?? `HTTP ${geminiRes.status}`;
+              console.warn(`[AI] Model ${model} attempt ${attempt + 1} failed: ${lastError}`);
+
+              // 429 veya 503 ise kısa bekle ve tekrar dene
+              if (geminiRes.status === 429 || geminiRes.status === 503) {
+                await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+              } else {
+                break; // Diğer hatalarda bu modeli bırak
+              }
+            } catch (e: unknown) {
+              lastError = e instanceof Error ? e.message : "Unknown";
+              console.warn(`[AI] Model ${model} attempt ${attempt + 1} exception: ${lastError}`);
+              if (lastError.includes("abort")) {
+                break; // Timeout, bu modeli bırak
+              }
+            }
+          }
+        }
+        throw new Error(lastError || "Tüm modeller başarısız");
       }
 
-      const geminiData = await geminiRes.json() as any;
-      const reply = geminiData.candidates?.[0]?.content?.parts?.[0]?.text ?? "(Yanıt alınamadı)";
+      const reply = await callGeminiWithFallback(contents);
       return res.json({ reply });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Bilinmeyen hata";
       console.error(`[AI] Exception: ${msg}`);
-      // Timeout veya hata durumunda kullanıcı dostu mesaj
-      if (msg.includes("abort")) {
-        return res.status(504).json({ error: "İstek zaman aşımına uğradı. Lütfen daha kısa bir soru sorun." });
+      if (msg.includes("abort") || msg.includes("zaman aşımı")) {
+        return res.status(504).json({ error: "Yanıt süresi doldu. Lütfen daha kısa bir soru sorun." });
       }
-      return res.status(500).json({ error: "AI servisi şu an kullanılamıyor. Lütfen tekrar deneyin." });
+      if (msg.includes("quota") || msg.includes("429")) {
+        return res.status(429).json({ error: "AI servisi şu an yoğun. 1 dakika sonra tekrar deneyin." });
+      }
+      return res.status(500).json({ error: `AI servisi geçici olarak kullanılamıyor. Lütfen tekrar deneyin.` });
     }
   });
 

@@ -14,3 +14,13 @@ services:
         sync: false
       - key: OAUTH_SERVER_URL
         value: https://ta-system-app-mobile.onrender.com
+      - key: JWT_SECRET
+        generateValue: true
+      - key: VITE_APP_ID
+        value: ""
+      - key: OWNER_OPEN_ID
+        value: ""
+      - key: BUILT_IN_FORGE_API_URL
+        value: ""
+      - key: BUILT_IN_FORGE_API_KEY
+        value: ""
