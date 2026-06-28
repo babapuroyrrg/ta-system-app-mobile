@@ -12,3 +12,5 @@ services:
         value: 3000
       - key: GEMINI_API_KEY
         sync: false
+      - key: OAUTH_SERVER_URL
+        value: https://ta-system-app-mobile.onrender.com
